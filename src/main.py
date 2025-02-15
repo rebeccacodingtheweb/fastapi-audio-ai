@@ -10,6 +10,7 @@ from starlette.staticfiles import StaticFiles
 from db import mongo_setup
 from infrastructure import cache_buster, app_setup, app_secrets
 from viewmodels.shared.viewmodel_base import ViewModelBase
+from views import ai_views
 from views import account_views
 from views import home_views
 from views import podcasts_views
@@ -58,6 +59,7 @@ def main():
 
 def configure_routing():
     app.mount("/static", StaticFiles(directory="src/static"), name="static")
+    app.include_router(ai_views.router)
     app.include_router(home_views.router)
     app.include_router(account_views.router)
     app.include_router(podcasts_views.router)
