@@ -4,12 +4,14 @@ import json
 from typing import Any, Optional
 
 import assemblyai
+from assemblyai import TranscriptStatus
 
 from db.transcripts import (
     EpisodeTranscript,
     EpisodeTranscriptProjection,
     EpisodeTranscriptSummary,
     EpisodeTranscriptWords,
+    TranscriptWord,
 )
 from services import podcast_service
 
@@ -67,6 +69,14 @@ async def worker_transcribe_episode(
     podcast_id: str, episode_number: int
 ) -> EpisodeTranscript:
 
+    db_transcript = await full_transcript_for_episode(podcast_id, episode_number)
+
+    if db_transcript:
+        print(
+            f"Transcript for {podcast_id} number {episode_number} already exists, skipping."
+        )
+        return db_transcript
+
     podcast = await podcast_service.podcast_by_id(podcast_id)
     if not podcast:
         raise Exception(f"Podcast not found for ID: {podcast_id}")
@@ -78,6 +88,7 @@ async def worker_transcribe_episode(
         )
 
     mp3_url = episode.enclosure_url
+    print(f"We are transcribing {podcast.title} - {episode.title} from {mp3_url} ...")
 
     transcriber = assemblyai.Transcriber()
     config = assemblyai.TranscriptionConfig(
@@ -87,7 +98,28 @@ async def worker_transcribe_episode(
     transcript_future = transcriber.transcribe_async(mp3_url, config)
     transcript = await run_future(transcript_future)
 
-    return None
+    db_transcript = EpisodeTranscript(
+        episode_number=episode_number,
+        podcast_id=podcast_id,
+        successful=transcript.status == TranscriptStatus.completed,
+        status=transcript.status,
+        assemblyai_id=transcript.id,
+        json_result=transcript.json_response,
+    )
+
+    if not db_transcript.successful:
+        msg = f"Error processing transcript: {podcast_id} num {episode_number}: {db_transcript.status} -> {db_transcript.error_msg or ''}"
+        raise Exception(msg)
+
+    for word in transcript.words:
+        start_sec = word.start / 1000.0
+        tx_word = TranscriptWord(
+            text=word.text, start_in_sec=start_sec, confidence=word.confidence
+        )
+        db_transcript.words.append(tx_word)
+
+    await db_transcript.save()
+    return db_transcript
 
 
 async def worker_summarize_episode(podcast_id: str, episode_number: int):
