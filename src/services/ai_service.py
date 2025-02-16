@@ -1,6 +1,7 @@
 import asyncio
 import concurrent.futures
 import json
+from datetime import datetime
 from typing import Any, Optional
 
 import assemblyai
@@ -69,6 +70,8 @@ async def worker_transcribe_episode(
     podcast_id: str, episode_number: int
 ) -> EpisodeTranscript:
 
+    t0 = datetime.now()
+
     db_transcript = await full_transcript_for_episode(podcast_id, episode_number)
 
     if db_transcript:
@@ -119,6 +122,12 @@ async def worker_transcribe_episode(
         db_transcript.words.append(tx_word)
 
     await db_transcript.save()
+
+    dt = datetime.now() - t0
+    print(
+        f"Processing complete for transcription, duration {dt.total_seconds():.2f} sec."
+    )
+
     return db_transcript
 
 
